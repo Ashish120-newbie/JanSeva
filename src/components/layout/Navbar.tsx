@@ -4,26 +4,21 @@ import {
   Home,
   LayoutDashboard,
   FileText,
-  Search,
   MessageSquare,
-  Landmark,
-  BarChart3,
-  User,
   Menu,
   X,
   Shield,
+  Phone as PhoneIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { name: 'Home', path: '/', icon: Home },
+  { name: 'Services', path: '/#services', icon: FileText },
+  { name: 'AI Assistant', path: '/#assistant', icon: MessageSquare },
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { name: 'File Complaint', path: '/file-complaint', icon: FileText },
-  { name: 'Track Complaint', path: '/track', icon: Search },
-  { name: 'AI Assistant', path: '/assistant', icon: MessageSquare },
-  { name: 'Schemes', path: '/schemes', icon: Landmark },
-  { name: 'Analytics', path: '/analytics', icon: BarChart3 },
-  { name: 'Profile', path: '/profile', icon: User },
+  { name: 'About', path: '/#about', icon: Shield },
+  { name: 'Contact', path: '/#contact', icon: PhoneIcon },
 ];
 
 export function Navbar() {
@@ -79,15 +74,10 @@ export function Navbar() {
           <div className="hidden lg:flex items-center gap-3">
             <Link
               to="/dashboard"
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-sky-500 rounded-lg shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 transition-all"
             >
-              Sign In
-            </Link>
-            <Link
-              to="/dashboard"
-              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-sky-500 rounded-lg shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 transition-all"
-            >
-              Get Started
+              <Shield className="w-4 h-4" />
+              Login / Register
             </Link>
           </div>
 
@@ -125,18 +115,13 @@ export function Navbar() {
                 </Link>
               );
             })}
-            <div className="pt-3 border-t border-slate-200 flex gap-2">
+            <div className="pt-3 border-t border-slate-200">
               <Link
                 to="/dashboard"
-                className="flex-1 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg text-center"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-sky-500 rounded-lg"
               >
-                Sign In
-              </Link>
-              <Link
-                to="/dashboard"
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-sky-500 rounded-lg text-center"
-              >
-                Get Started
+                <Shield className="w-4 h-4" />
+                Login / Register
               </Link>
             </div>
           </div>
