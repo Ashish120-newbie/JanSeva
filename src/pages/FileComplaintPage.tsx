@@ -11,11 +11,13 @@ import {
   CheckCircle,
   Loader2,
   Send,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { complaintCategories } from '@/data/mockData';
 import { cn } from '@/lib/utils';
+import { supabase, type ComplaintInsert } from '@/lib/supabase';
 
 interface AIAnalysis {
   category: string;
@@ -28,9 +30,15 @@ interface AIAnalysis {
 export function FileComplaintPage() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [complaintId, setComplaintId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [formData, setFormData] = useState({
+    citizenName: '',
+    email: '',
     title: '',
     description: '',
     category: '',
@@ -46,53 +54,166 @@ export function FileComplaintPage() {
     urgent: 'bg-red-100 text-red-700 border-red-200',
   };
 
-  const simulateAIAnalysis = () => {
-    const analysis: AIAnalysis = {
-      category: formData.category || 'Infrastructure',
-      priority: formData.description.toLowerCase().includes('urgent') ||
-                formData.description.toLowerCase().includes('emergency') ||
-                formData.description.toLowerCase().includes('accident')
-        ? 'urgent'
-        : formData.description.length > 200 || formData.description.toLowerCase().includes('safety')
-        ? 'high'
-        : formData.description.length > 100
-        ? 'medium'
-        : 'low',
-      department: getDepartmentFromCategory(formData.category || 'Infrastructure'),
-      estimatedResolution: getEstimatedResolution(),
-      summary: formData.description.slice(0, 150) + (formData.description.length > 150 ? '...' : ''),
-    };
-    setAiAnalysis(analysis);
-    setShowAnalysis(true);
-  };
+  const analyzeComplaint = async (): Promise<AIAnalysis | null> => {
+    setIsAnalyzing(true);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/analyze-complaint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: formData.description,
+          category: formData.category,
+        }),
+      });
 
-  const getDepartmentFromCategory = (category: string): string => {
-    const mapping: Record<string, string> = {
-      'Infrastructure': 'Roads & Transport',
-      'Public Services': 'Water Supply',
-      'Health & Safety': 'Public Health',
-      'Environment': 'Sanitation',
-      'Transportation': 'Roads & Transport',
-      'Utilities': 'Electricity',
-      'Education': 'Education',
-    };
-    return mapping[category] || 'Revenue';
-  };
+      if (!response.ok) {
+        throw new Error('Failed to analyze complaint');
+      }
 
-  const getEstimatedResolution = (): string => {
-    const days = Math.floor(Math.random() * 7) + 3;
-    return `${days} days`;
+      const analysis = await response.json();
+      setAiAnalysis(analysis);
+      setShowAnalysis(true);
+      return analysis;
+    } catch (err) {
+      console.error('Analysis error:', err);
+      // Fallback to basic analysis
+      const fallback: AIAnalysis = {
+        category: formData.category || 'Other',
+        priority: 'medium',
+        department: 'General Administration',
+        estimatedResolution: '7-14 days',
+        summary: formData.description.slice(0, 150) + (formData.description.length > 150 ? '...' : ''),
+      };
+      setAiAnalysis(fallback);
+      setShowAnalysis(true);
+      return fallback;
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setIsSubmitting(true);
 
-    simulateAIAnalysis();
+    try {
+      // Step 1: Analyze the complaint with Gemini
+      const analysis = await analyzeComplaint();
+      if (!analysis) {
+        throw new Error('Failed to analyze complaint');
+      }
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsSubmitting(false);
+      // Step 2: Insert complaint into Supabase
+      const complaintData: ComplaintInsert = {
+        citizen_name: formData.citizenName,
+        email: formData.email,
+        description: formData.description,
+        category: analysis.category,
+        department: analysis.department,
+        priority: analysis.priority,
+        status: 'pending',
+        ai_summary: analysis.summary,
+        location: formData.location,
+        contact_number: formData.contactNumber,
+      };
+
+      const { data, error: insertError } = await supabase
+        .from('complaints')
+        .insert(complaintData)
+        .select('complaint_id')
+        .single();
+
+      if (insertError) {
+        console.error('Insert error:', insertError);
+        throw new Error('Failed to submit complaint. Please try again.');
+      }
+
+      // Step 3: Show success with complaint ID
+      setComplaintId(data.complaint_id);
+      setShowSuccess(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (showSuccess && complaintId) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-8 text-center">
+            <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="w-10 h-10 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Complaint Submitted Successfully!</h2>
+            <p className="text-slate-600 mb-6">
+              Your complaint has been registered and is now being processed.
+            </p>
+
+            <div className="bg-slate-50 rounded-xl p-6 mb-6">
+              <p className="text-sm text-slate-500 mb-2">Your Complaint ID</p>
+              <p className="text-2xl font-mono font-bold text-blue-600">{complaintId}</p>
+            </div>
+
+            {aiAnalysis && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 mb-6 text-left">
+                <p className="text-xs text-blue-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  AI Summary
+                </p>
+                <p className="text-sm text-slate-700">{aiAnalysis.summary}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className={cn('px-2 py-1 rounded-full text-xs font-medium border', priorityColors[aiAnalysis.priority])}>
+                    {aiAnalysis.priority.charAt(0).toUpperCase() + aiAnalysis.priority.slice(1)} Priority
+                  </span>
+                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                    {aiAnalysis.department}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <p className="text-sm text-slate-500 mb-6">
+              Please save your complaint ID for future reference. You can use it to track the status of your complaint.
+            </p>
+
+            <div className="flex gap-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowSuccess(false);
+                  setShowAnalysis(false);
+                  setComplaintId(null);
+                  setFormData({
+                    citizenName: '',
+                    email: '',
+                    title: '',
+                    description: '',
+                    category: '',
+                    location: '',
+                    contactNumber: '',
+                    date: new Date().toISOString().split('T')[0],
+                  });
+                }}
+                className="flex-1"
+              >
+                File Another Complaint
+              </Button>
+              <Button
+                onClick={() => navigate('/track')}
+                className="flex-1"
+              >
+                Track This Complaint
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -100,6 +221,13 @@ export function FileComplaintPage() {
         <h1 className="text-2xl font-bold text-slate-900">File a Complaint</h1>
         <p className="text-slate-600">Submit your grievance and let AI handle the rest</p>
       </div>
+
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Form */}
@@ -112,6 +240,36 @@ export function FileComplaintPage() {
               </h2>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              {/* Citizen Name */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  value={formData.citizenName}
+                  onChange={(e) => setFormData({ ...formData, citizenName: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Enter your full name"
+                  required
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Email Address *
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Enter your email address"
+                  required
+                />
+              </div>
+
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -141,7 +299,7 @@ export function FileComplaintPage() {
                 />
               </div>
 
-              {/* Category & Department */}
+              {/* Category & Date */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -182,7 +340,7 @@ export function FileComplaintPage() {
                   type="text"
                   value={formData.location}
                   onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all pl-10"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Enter the location of the issue"
                   required
                 />
@@ -223,13 +381,22 @@ export function FileComplaintPage() {
               <div className="flex gap-4 pt-4">
                 <Button
                   type="submit"
-                  disabled={isSubmitting || !formData.title || !formData.description || !formData.location}
+                  disabled={isSubmitting || !formData.citizenName || !formData.email || !formData.title || !formData.description || !formData.location}
                   className="flex-1 h-12"
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                      Analyzing...
+                      {isAnalyzing ? (
+                        <>
+                          <Sparkles className="w-5 h-5 animate-pulse mr-2" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                          Submitting...
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
@@ -321,17 +488,6 @@ export function FileComplaintPage() {
                     AI Summary
                   </p>
                   <p className="text-sm text-slate-700">{aiAnalysis?.summary}</p>
-                </div>
-
-                {/* Confirmation */}
-                <div className="pt-4">
-                  <Button
-                    onClick={() => navigate('/track')}
-                    className="w-full"
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Track Your Complaint
-                  </Button>
                 </div>
               </div>
             )}
