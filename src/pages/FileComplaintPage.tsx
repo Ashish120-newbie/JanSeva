@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileText,
@@ -12,6 +12,8 @@ import {
   Loader2,
   Send,
   AlertCircle,
+  Shield,
+  ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,6 +27,8 @@ interface AIAnalysis {
   department: string;
   estimatedResolution: string;
   summary: string;
+  officerSummary?: string;
+  nextAction?: string;
 }
 
 export function FileComplaintPage() {
@@ -36,6 +40,8 @@ export function FileComplaintPage() {
   const [complaintId, setComplaintId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     citizenName: '',
     email: '',
@@ -58,9 +64,14 @@ export function FileComplaintPage() {
     setIsAnalyzing(true);
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const response = await fetch(`${supabaseUrl}/functions/v1/analyze-complaint`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          apikey: supabaseAnonKey,
+        },
         body: JSON.stringify({
           description: formData.description,
           category: formData.category,
@@ -68,22 +79,24 @@ export function FileComplaintPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze complaint');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to analyze complaint');
       }
 
       const analysis = await response.json();
       setAiAnalysis(analysis);
       setShowAnalysis(true);
       return analysis;
-    } catch (err) {
-      console.error('Analysis error:', err);
-      // Fallback to basic analysis
+    } catch {
+      // Fallback to basic analysis if the edge function is unavailable.
       const fallback: AIAnalysis = {
         category: formData.category || 'Other',
         priority: 'medium',
         department: 'General Administration',
-        estimatedResolution: '7-14 days',
+        estimatedResolution: '7-14 working days',
         summary: formData.description.slice(0, 150) + (formData.description.length > 150 ? '...' : ''),
+        officerSummary: formData.description.slice(0, 150) + (formData.description.length > 150 ? '...' : ''),
+        nextAction: 'Review complaint details and assign to the appropriate officer for initial assessment.',
       };
       setAiAnalysis(fallback);
       setShowAnalysis(true);
@@ -113,7 +126,7 @@ export function FileComplaintPage() {
         category: analysis.category,
         department: analysis.department,
         priority: analysis.priority,
-        status: 'pending',
+        status: 'submitted',
         ai_summary: analysis.summary,
         location: formData.location,
         contact_number: formData.contactNumber,
@@ -126,8 +139,7 @@ export function FileComplaintPage() {
         .single();
 
       if (insertError) {
-        console.error('Insert error:', insertError);
-        throw new Error('Failed to submit complaint. Please try again.');
+        throw new Error(insertError.message || 'Failed to submit complaint. Please try again.');
       }
 
       // Step 3: Show success with complaint ID
@@ -162,15 +174,24 @@ export function FileComplaintPage() {
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 mb-6 text-left">
                 <p className="text-xs text-blue-600 uppercase tracking-wider mb-2 flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
-                  AI Summary
+                  AI Analysis
                 </p>
-                <p className="text-sm text-slate-700">{aiAnalysis.summary}</p>
+                <p className="text-sm text-slate-700 mb-2">{aiAnalysis.officerSummary || aiAnalysis.summary}</p>
+                {aiAnalysis.nextAction && (
+                  <p className="text-sm text-slate-600 mb-3 flex items-start gap-1.5">
+                    <ArrowRight className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <span><span className="font-medium">Next action:</span> {aiAnalysis.nextAction}</span>
+                  </p>
+                )}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className={cn('px-2 py-1 rounded-full text-xs font-medium border', priorityColors[aiAnalysis.priority])}>
                     {aiAnalysis.priority.charAt(0).toUpperCase() + aiAnalysis.priority.slice(1)} Priority
                   </span>
                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
                     {aiAnalysis.department}
+                  </span>
+                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                    {aiAnalysis.estimatedResolution}
                   </span>
                 </div>
               </div>
@@ -368,12 +389,38 @@ export function FileComplaintPage() {
                   <Upload className="w-4 h-4 inline mr-1" />
                   Upload Image (Optional)
                 </label>
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-colors cursor-pointer">
-                  <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm text-slate-600">
-                    Drag & drop an image here, or <span className="text-blue-600 font-medium">browse</span>
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">PNG, JPG up to 10MB</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => setImagePreview(reader.result as string);
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-colors cursor-pointer"
+                >
+                  {imagePreview ? (
+                    <div className="space-y-2">
+                      <img src={imagePreview} alt="Upload preview" className="max-h-40 mx-auto rounded-lg" />
+                      <p className="text-xs text-slate-500">Click to change image</p>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      <p className="text-sm text-slate-600">
+                        Drag & drop an image here, or <span className="text-blue-600 font-medium">browse</span>
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">PNG, JPG up to 5MB</p>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -487,9 +534,25 @@ export function FileComplaintPage() {
                     <Sparkles className="w-3 h-3" />
                     AI Summary
                   </p>
-                  <p className="text-sm text-slate-700">{aiAnalysis?.summary}</p>
+                  <p className="text-sm text-slate-700">{aiAnalysis?.officerSummary || aiAnalysis?.summary}</p>
                 </div>
+
+                {aiAnalysis?.nextAction && (
+                  <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-xl border border-amber-100">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <ArrowRight className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-amber-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        Recommended Next Action
+                      </p>
+                      <p className="text-sm text-slate-700">{aiAnalysis.nextAction}</p>
+                    </div>
+                  </div>
+                )}
               </div>
+
             )}
           </div>
         </div>

@@ -13,6 +13,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -56,39 +59,27 @@ export function AIAssistantPage() {
   }, [messages]);
 
   const getAIResponse = async (userMessage: string): Promise<string> => {
-    // Simulated AI responses based on keywords
-    const lower = userMessage.toLowerCase();
+    const history = messages
+      .filter((m) => m.id !== '1')
+      .map((msg) => ({ role: msg.role, content: msg.content }));
 
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/gemini-chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        apikey: SUPABASE_ANON_KEY!,
+      },
+      body: JSON.stringify({ message: userMessage, history }),
+    });
 
-    if (lower.includes('file') && lower.includes('complaint')) {
-      return 'To file a complaint:\n\n1. Go to "File Complaint" from the navigation menu\n2. Fill in the complaint title and detailed description\n3. Select the appropriate category\n4. Provide the location and your contact number\n5. Optionally upload supporting images\n6. Click "Submit Complaint"\n\nOur AI will automatically categorize your complaint, assign priority, and route it to the correct department. You\'ll receive a tracking ID to monitor progress.\n\nWould you like me to guide you through filing a specific type of complaint?';
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to get AI response');
     }
 
-    if (lower.includes('status') || lower.includes('track')) {
-      return 'To track your complaint:\n\n1. Go to "Track Complaint" from the navigation menu\n2. Enter your complaint ID (e.g., CVC2024001)\n3. Click "Track" to see real-time status\n\nYou can also use quick access buttons on the dashboard for recent complaints.\n\nDo you have a specific complaint ID you\'d like to check?';
-    }
-
-    if (lower.includes('scheme') || lower.includes('eligible')) {
-      return 'Based on your profile, you may be eligible for:\n\n🎓 **National Scholarship Portal**\n   For students from economically weaker sections\n   Benefits: Up to Rs. 50,000/year\n\n🌾 **PM-KISAN Samman Nidhi**\n   For farmer families\n   Benefits: Rs. 6,000/year\n\n🏥 **Ayushman Bharat**\n   Health insurance scheme\n   Benefits: Up to Rs. 5 lakhs coverage\n\nWould you like detailed information about any of these schemes?';
-    }
-
-    if (lower.includes('document') || lower.includes('birth certificate') || lower.includes('certificate')) {
-      if (lower.includes('birth')) {
-        return '**Documents required for Birth Certificate:**\n\n1. Hospital discharge summary\n2. Parents\' identity proof (Aadhaar)\n3. Proof of marriage (if applicable)\n4. Address proof\n5. Affidavit (if delays)\n\n**Where to apply:**\n• Online: Through your state\'s e-District portal\n• Offline: Municipal Corporation / Gram Panchayat\n\n**Processing time:** 7-15 working days\n\n**Fees:** Usually free within 21 days of birth\n\nNeed help with any other document requirements?';
-      }
-      return 'I can help you with document requirements. Could you specify which document you need information about? Some common ones:\n\n• Birth Certificate\n• Death Certificate\n• Ration Card\n• Passport\n• Driving License\n• PAN Card\n• Domicile Certificate';
-    }
-
-    if (lower.includes('water') || lower.includes('electricity') || lower.includes('road')) {
-      return `For **${lower.includes('water') ? 'Water Supply' : lower.includes('electricity') ? 'Electricity' : 'Roads'}** related issues:\n\n**Quick Steps:**\n\n1. File a complaint with detailed location and problem description\n2. Attach photos/videos if possible\n3. Department will be auto-assigned based on category\n\n**Typical Resolution Time:** 3-7 days\n\n**Emergency Numbers:**\n• Water Supply: 1916\n• Electricity: 1912\n• Municipal Emergency: 155305\n\nWould you like to file a specific complaint now?`;
-    }
-
-    if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) {
-      return 'Hello! How can I help you today? Feel free to ask about:\n\n• Filing and tracking complaints\n• Government schemes and eligibility\n• Document requirements\n• General government services';
-    }
-
-    return 'I understand you have a query. Let me help you with that.\n\nFor the most accurate assistance, could you please provide more details about:\n\n• The specific service or department\n• Your current situation\n• What outcome you\'re looking for\n\nIn the meantime, you can:\n• 📝 File a new complaint\n• 🔍 Track existing complaints\n• 🏛️ Explore government schemes\n• 📋 Check document requirements';
+    return data.response || 'I could not generate a response. Please try again.';
   };
 
   const sendMessage = async () => {
@@ -116,11 +107,13 @@ export function AIAssistantPage() {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-    } catch {
+    } catch (err) {
       const errorMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: 'I apologize, but I encountered an error. Please try again or contact support if the issue persists.',
+        content: err instanceof Error
+          ? `I encountered an error: ${err.message}. Please try again.`
+          : 'I apologize, but I encountered an error. Please try again.',
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);

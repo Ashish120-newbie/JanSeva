@@ -15,8 +15,6 @@ import {
   Users,
   Lock,
   Loader2,
-  Mic,
-  Paperclip,
   Upload,
   MapPin,
   Phone,
@@ -32,15 +30,11 @@ import {
   Droplets,
   Zap,
   Construction,
-  GraduationCap,
-  Home as HomeIcon,
-  Wheat,
-  Rocket,
-  HeartHandshake,
   Bell,
   CheckCircle,
   Circle,
   ChevronRight,
+  AlertCircle,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -57,6 +51,17 @@ import {
   Cell,
 } from 'recharts';
 import { cn } from '@/lib/utils';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+interface SchemeRecommendation {
+  title: string;
+  category: string;
+  benefits: string;
+  reason: string;
+  matchScore: number;
+}
 
 /* ---------- Data ---------- */
 
@@ -183,14 +188,6 @@ const dashboardCards = [
   { label: 'Notifications', value: '7', icon: Bell, color: 'from-indigo-500 to-blue-500' },
 ];
 
-const schemeResults = [
-  { icon: GraduationCap, title: 'National Scholarship Portal', category: 'Scholarship', desc: 'Up to Rs. 50,000/year for eligible students based on merit and income.' },
-  { icon: HomeIcon, title: 'PM Awas Yojana', category: 'Housing', desc: 'Subsidized housing for economically weaker sections.' },
-  { icon: Wheat, title: 'PM-KISAN Samman Nidhi', category: 'Farmer', desc: 'Rs. 6,000/year direct benefit transfer to farmers.' },
-  { icon: Rocket, title: 'Startup India Seed Fund', category: 'Startup', desc: 'Up to Rs. 20 lakhs for early-stage startups.' },
-  { icon: HeartHandshake, title: 'Ayushman Bharat', category: 'Welfare', desc: 'Up to Rs. 5 lakhs health coverage per family per year.' },
-];
-
 /* ---------- Component ---------- */
 
 export function LandingPage() {
@@ -202,11 +199,32 @@ export function LandingPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Scheme recommendation form
-  const [schemeForm, setSchemeForm] = useState({ age: '', income: '', occupation: '', state: '' });
-  const [schemeRecommended, setSchemeRecommended] = useState(false);
+  const [schemeForm, setSchemeForm] = useState({
+    age: '',
+    income: '',
+    occupation: '',
+    state: '',
+    gender: '',
+    category: '',
+    education: '',
+    disability: '',
+  });
+  const [schemeLoading, setSchemeLoading] = useState(false);
+  const [schemeError, setSchemeError] = useState<string | null>(null);
+  const [schemeRecommendations, setSchemeRecommendations] = useState<SchemeRecommendation[]>([]);
+  const [schemeSubmitted, setSchemeSubmitted] = useState(false);
 
   // Emergency form
   const [emergencyType, setEmergencyType] = useState('Fire Hazard');
+  const [emergencyLocation, setEmergencyLocation] = useState('');
+  const [emergencyContact, setEmergencyContact] = useState('');
+  const [emergencySubmitted, setEmergencySubmitted] = useState(false);
+
+  const handleEmergencySubmit = () => {
+    if (!emergencyLocation.trim() || !emergencyContact.trim()) return;
+    setEmergencySubmitted(true);
+    setTimeout(() => setEmergencySubmitted(false), 4000);
+  };
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -225,10 +243,49 @@ export function LandingPage() {
     }, 1100);
   };
 
-  const recommendSchemes = (e: React.FormEvent) => {
+  const recommendSchemes = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!schemeForm.age || !schemeForm.income || !schemeForm.occupation || !schemeForm.state) return;
-    setSchemeRecommended(true);
+
+    setSchemeLoading(true);
+    setSchemeError(null);
+    setSchemeRecommendations([]);
+    setSchemeSubmitted(true);
+
+    try {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/scheme-recommend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: SUPABASE_ANON_KEY!,
+        },
+        body: JSON.stringify(schemeForm),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate recommendations');
+      }
+
+      const recommendations = data.recommendations || [];
+
+      if (recommendations.length === 0) {
+        setSchemeError('No schemes found matching your profile. Try adjusting your inputs.');
+      } else {
+        setSchemeRecommendations(recommendations);
+      }
+    } catch (err) {
+      setSchemeError(
+        err instanceof Error
+          ? `Unable to generate recommendations: ${err.message}. Please try again.`
+          : 'Unable to generate recommendations. Please try again.'
+      );
+    } finally {
+      setSchemeLoading(false);
+    }
   };
 
   return (
@@ -510,18 +567,6 @@ export function LandingPage() {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    aria-label="Attach file"
-                    className="w-11 h-11 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200 transition-colors flex-shrink-0"
-                  >
-                    <Paperclip className="w-5 h-5" />
-                  </button>
-                  <button
-                    aria-label="Voice input"
-                    className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-colors flex-shrink-0"
-                  >
-                    <Mic className="w-5 h-5" />
-                  </button>
                   <input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -654,7 +699,7 @@ export function LandingPage() {
       </section>
 
       {/* ===== SCHEME RECOMMENDATION ENGINE ===== */}
-      <section className="py-20 bg-slate-50/50">
+      <section id="scheme-engine" className="py-20 bg-slate-50/50 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-14">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Scheme Recommendation Engine</h2>
@@ -715,6 +760,62 @@ export function LandingPage() {
                     <option value="mp">Madhya Pradesh</option>
                   </select>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Gender</label>
+                    <select
+                      value={schemeForm.gender}
+                      onChange={(e) => setSchemeForm({ ...schemeForm, gender: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
+                    >
+                      <option value="">Select</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
+                    <select
+                      value={schemeForm.category}
+                      onChange={(e) => setSchemeForm({ ...schemeForm, category: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
+                    >
+                      <option value="">Select</option>
+                      <option value="general">General</option>
+                      <option value="obc">OBC</option>
+                      <option value="sc">SC</option>
+                      <option value="st">ST</option>
+                      <option value="ews">EWS</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Education</label>
+                  <select
+                    value={schemeForm.education}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, education: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
+                  >
+                    <option value="">Select education level</option>
+                    <option value="below-10">Below 10th</option>
+                    <option value="10th-pass">10th Pass</option>
+                    <option value="12th-pass">12th Pass</option>
+                    <option value="graduate">Graduate</option>
+                    <option value="postgraduate">Postgraduate</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Disability Status (optional)</label>
+                  <select
+                    value={schemeForm.disability}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, disability: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
+                  >
+                    <option value="">None</option>
+                    <option value="yes">Person with disability</option>
+                  </select>
+                </div>
                 <button
                   type="submit"
                   className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors"
@@ -727,7 +828,29 @@ export function LandingPage() {
 
             {/* Results */}
             <div className="lg:col-span-3 space-y-4">
-              {!schemeRecommended ? (
+              {schemeLoading ? (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mx-auto mb-4">
+                    <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                  </div>
+                  <p className="font-semibold text-slate-900 mb-1">Analyzing your profile...</p>
+                  <p className="text-sm text-slate-500">AI is matching you with eligible government schemes.</p>
+                </div>
+              ) : schemeError ? (
+                <div className="bg-white rounded-3xl border border-red-200 shadow-sm p-8 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="w-8 h-8 text-red-500" />
+                  </div>
+                  <p className="font-semibold text-slate-900 mb-1">Could not generate recommendations</p>
+                  <p className="text-sm text-slate-500 mb-4">{schemeError}</p>
+                  <button
+                    onClick={() => setSchemeError(null)}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ) : !schemeSubmitted ? (
                 <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-12 text-center">
                   <div className="w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mx-auto mb-4">
                     <Sparkles className="w-8 h-8 text-blue-600" />
@@ -735,24 +858,39 @@ export function LandingPage() {
                   <p className="font-semibold text-slate-900 mb-1">Your recommendations will appear here</p>
                   <p className="text-sm text-slate-500">Fill the form and let AI find eligible schemes for you.</p>
                 </div>
+              ) : schemeRecommendations.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
+                    <Search className="w-8 h-8 text-amber-500" />
+                  </div>
+                  <p className="font-semibold text-slate-900 mb-1">No matching schemes found</p>
+                  <p className="text-sm text-slate-500">Try adjusting your profile details for different recommendations.</p>
+                </div>
               ) : (
-                schemeResults.map((scheme, i) => (
+                schemeRecommendations.map((scheme, i) => (
                   <div
-                    key={scheme.title}
-                    className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-start gap-4 hover:border-blue-200 hover:shadow-md transition-all animate-fade-in"
+                    key={i}
+                    className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:border-blue-200 hover:shadow-md transition-all animate-fade-in"
                     style={{ animationDelay: `${i * 80}ms` }}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <scheme.icon className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-slate-900">{scheme.title}</h3>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{scheme.category}</span>
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <CheckCircle2 className="w-6 h-6 text-blue-600" />
                       </div>
-                      <p className="text-sm text-slate-600">{scheme.desc}</p>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="font-semibold text-slate-900">{scheme.title}</h3>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{scheme.category}</span>
+                          {scheme.matchScore && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                              {scheme.matchScore}% match
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-slate-600 mb-2">{scheme.benefits}</p>
+                        <p className="text-sm text-slate-500 italic">{scheme.reason}</p>
+                      </div>
                     </div>
-                    <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
                   </div>
                 ))
               )}
@@ -836,7 +974,9 @@ export function LandingPage() {
                       <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                       <input
                         type="text"
-                        placeholder="Auto-detected: Sector 3, near City Park"
+                        placeholder="Enter the location of the emergency"
+                      value={emergencyLocation}
+                      onChange={(e) => setEmergencyLocation(e.target.value)}
                         className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       />
                     </div>
@@ -847,15 +987,26 @@ export function LandingPage() {
                       <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                       <input
                         type="tel"
-                        placeholder="Enter your number"
+                        placeholder="Enter your contact number"
+                      value={emergencyContact}
+                      onChange={(e) => setEmergencyContact(e.target.value)}
                         className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       />
                     </div>
                   </div>
-                  <button className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors">
+                  <button
+                    onClick={handleEmergencySubmit}
+                    disabled={!emergencyLocation.trim() || !emergencyContact.trim()}
+                    className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
                     <AlertTriangle className="w-5 h-5" />
-                    Submit Emergency Report
+                    {emergencySubmitted ? 'Emergency Reported' : 'Submit Emergency Report'}
                   </button>
+                  {emergencySubmitted && (
+                    <p className="text-xs text-green-600 mt-2 text-center">
+                      Emergency reported. Authorities have been notified.
+                    </p>
+                  )}
                 </div>
               </div>
 

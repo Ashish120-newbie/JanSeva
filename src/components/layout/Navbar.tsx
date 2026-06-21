@@ -77,7 +77,7 @@ export function Navbar() {
               className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-sky-500 rounded-lg shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 transition-all"
             >
               <Shield className="w-4 h-4" />
-              Login / Register
+              Dashboard
             </Link>
           </div>
 
@@ -121,7 +121,7 @@ export function Navbar() {
                 className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-sky-500 rounded-lg"
               >
                 <Shield className="w-4 h-4" />
-                Login / Register
+                Dashboard
               </Link>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   GraduationCap,
   Leaf,
@@ -12,6 +13,7 @@ import {
   ArrowRight,
   Sparkles,
   Filter,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { mockSchemes } from '@/data/mockData';
@@ -60,10 +62,12 @@ export function SchemesPage() {
               Based on your profile, we've identified 4 schemes you may be eligible for
             </p>
           </div>
-          <Button className="bg-white text-blue-700 hover:bg-blue-50 shadow-lg">
-            View Recommendations
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
+          <Link to={`/#scheme-engine`}>
+            <Button className="bg-white text-blue-700 hover:bg-blue-50 shadow-lg">
+              View Recommendations
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -147,8 +151,9 @@ export function SchemesPage() {
                   <span className="text-xs font-medium px-3 py-1 bg-blue-50 text-blue-700 rounded-full">
                     {scheme.category}
                   </span>
-                  <Button size="sm" className="text-sm">
+                  <Button size="sm" className="text-sm" onClick={() => window.open('https://www.india.gov.in/', '_blank', 'noopener,noreferrer')}>
                     Apply Now
+                    <ExternalLink className="w-3.5 h-3.5 ml-1" />
                   </Button>
                 </div>
               </div>
