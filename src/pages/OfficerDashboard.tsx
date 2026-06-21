@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import {
   XAxis,
   YAxis,
@@ -20,11 +19,9 @@ import {
   Clock,
   Star,
   TrendingUp,
-  ArrowRight,
 } from 'lucide-react';
-import { officerStats, mockComplaints } from '@/data/mockData';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { officerStats } from '@/data/mockData';
+import { OfficerResolutionPanel } from '@/components/OfficerResolutionPanel';
 
 export function OfficerDashboard() {
   return (
@@ -81,8 +78,8 @@ export function OfficerDashboard() {
 
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-purple-600" />
+            <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-emerald-600" />
             </div>
           </div>
           <p className="text-3xl font-bold text-slate-900">{officerStats.averageResolutionTime}</p>
@@ -98,6 +95,11 @@ export function OfficerDashboard() {
           <p className="text-3xl font-bold text-slate-900">{officerStats.citizenSatisfaction}%</p>
           <p className="text-sm text-slate-600">Satisfaction</p>
         </div>
+      </div>
+
+      {/* Resolution Panel (live complaints) */}
+      <div className="mb-6">
+        <OfficerResolutionPanel />
       </div>
 
       {/* Charts */}
@@ -143,74 +145,6 @@ export function OfficerDashboard() {
               </RadarChart>
             </ResponsiveContainer>
           </div>
-        </div>
-      </div>
-
-      {/* Pending Complaints */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Pending Complaints</h2>
-          <span className="text-sm text-slate-500">{officerStats.pendingCases} cases require attention</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Title</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Priority</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Filed Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Deadline</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {mockComplaints.filter(c => c.status !== 'resolved' && c.status !== 'feedback').map((complaint) => (
-                <tr key={complaint.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-medium text-blue-600">{complaint.id}</td>
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">{complaint.title}</p>
-                      <p className="text-xs text-slate-500">{complaint.location}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      'px-2 py-1 rounded-full text-xs font-medium',
-                      complaint.priority === 'urgent' && 'bg-red-100 text-red-700',
-                      complaint.priority === 'high' && 'bg-orange-100 text-orange-700',
-                      complaint.priority === 'medium' && 'bg-amber-100 text-amber-700',
-                      complaint.priority === 'low' && 'bg-green-100 text-green-700'
-                    )}>
-                      {complaint.priority.charAt(0).toUpperCase()}{complaint.priority.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{format(complaint.createdAt, 'MMM d, yyyy')}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{format(complaint.estimatedResolution, 'MMM d, yyyy')}</td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      'px-2 py-1 rounded-full text-xs font-medium',
-                      complaint.status === 'reviewing' && 'bg-blue-100 text-blue-700',
-                      complaint.status === 'assigned' && 'bg-amber-100 text-amber-700',
-                      complaint.status === 'action_taken' && 'bg-purple-100 text-purple-700',
-                      complaint.status === 'submitted' && 'bg-slate-100 text-slate-700'
-                    )}>
-                      {complaint.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Link
-                      to={`/track?id=${complaint.id}`}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center justify-end gap-1"
-                    >
-                      View <ArrowRight className="w-4 h-4" />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>

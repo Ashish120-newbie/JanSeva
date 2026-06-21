@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -21,19 +22,92 @@ import {
   BarChart3,
   PieChart as PieChartIcon,
   Activity,
+  Loader2,
 } from 'lucide-react';
 import { mockAnalytics } from '@/data/mockData';
+import { supabase, type Complaint } from '@/lib/supabase';
+import { subscribeToComplaintChanges } from '@/lib/complaintEvents';
 import { cn } from '@/lib/utils';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
+const RESOLVED_STATUSES = ['resolved'];
+
+type LiveStats = {
+  total: number;
+  resolved: number;
+  rate: number;
+  avgDays: number;
+  loading: boolean;
+  error: string | null;
+};
+
+const EMPTY_STATS: LiveStats = { total: 0, resolved: 0, rate: 0, avgDays: 0, loading: true, error: null };
+
+function computeStats(rows: Complaint[]): LiveStats {
+  const total = rows.length;
+  const resolvedRows = rows.filter((r) => RESOLVED_STATUSES.includes(r.status));
+  const resolved = resolvedRows.length;
+  const rate = total === 0 ? 0 : Math.round((resolved / total) * 1000) / 10;
+  const avgDays =
+    resolvedRows.length === 0
+      ? 0
+      : Math.round(
+          (resolvedRows.reduce((sum, r) => {
+            if (!r.resolved_at || !r.created_at) return sum;
+            const diff = new Date(r.resolved_at).getTime() - new Date(r.created_at).getTime();
+            return sum + Math.max(0, diff / (1000 * 60 * 60 * 24));
+          }, 0) /
+            resolvedRows.length) *
+            10
+        ) / 10;
+  return { total, resolved, rate, avgDays, loading: false, error: null };
+}
+
 export function AnalyticsDashboard() {
+  const [stats, setStats] = useState<LiveStats>(EMPTY_STATS);
+
+  const loadStats = useCallback(async () => {
+    setStats((prev) => ({ ...prev, loading: true, error: null }));
+    const { data, error } = await supabase
+      .from('complaints')
+      .select('id, status, created_at, resolved_at');
+
+    if (error) {
+      setStats({ ...EMPTY_STATS, loading: false, error: error.message });
+      return;
+    }
+    setStats(computeStats((data ?? []) as Complaint[]));
+  }, []);
+
+  useEffect(() => {
+    loadStats();
+    // Auto-refresh when an officer updates a complaint status anywhere in the app.
+    const unsubscribe = subscribeToComplaintChanges(loadStats);
+    return unsubscribe;
+  }, [loadStats]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Analytics Dashboard</h1>
-        <p className="text-slate-600">Comprehensive analysis of citizen complaints and resolution metrics</p>
+      <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Analytics Dashboard</h1>
+          <p className="text-slate-600">Comprehensive analysis of citizen complaints and resolution metrics</p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+          <span className={cn('w-2 h-2 rounded-full', stats.loading ? 'bg-amber-400 animate-pulse' : 'bg-green-500')} />
+          {stats.loading ? 'Refreshing live stats…' : 'Live stats up to date'}
+        </span>
       </div>
+
+      {stats.error && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+          <p className="text-sm text-amber-800">
+            Couldn't load live stats ({stats.error}). Showing sample figures below.
+          </p>
+        </div>
+      )}
 
       {/* Stats Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -43,7 +117,9 @@ export function AnalyticsDashboard() {
               <BarChart3 className="w-6 h-6 text-blue-600" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-slate-900">{mockAnalytics.totalComplaints}</p>
+          <p className="text-3xl font-bold text-slate-900">
+            {stats.loading ? <Loader2 className="w-7 h-7 animate-spin text-slate-400" /> : stats.total}
+          </p>
           <p className="text-sm text-slate-600">Total Complaints</p>
         </div>
 
@@ -53,7 +129,9 @@ export function AnalyticsDashboard() {
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-slate-900">{mockAnalytics.totalResolved}</p>
+          <p className="text-3xl font-bold text-slate-900">
+            {stats.loading ? <Loader2 className="w-7 h-7 animate-spin text-slate-400" /> : stats.resolved}
+          </p>
           <p className="text-sm text-slate-600">Resolved</p>
         </div>
 
@@ -63,7 +141,9 @@ export function AnalyticsDashboard() {
               <TrendingUp className="w-6 h-6 text-purple-600" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-slate-900">{mockAnalytics.resolutionRate}%</p>
+          <p className="text-3xl font-bold text-slate-900">
+            {stats.loading ? <Loader2 className="w-7 h-7 animate-spin text-slate-400" /> : `${stats.rate}%`}
+          </p>
           <p className="text-sm text-slate-600">Resolution Rate</p>
         </div>
 
@@ -73,7 +153,9 @@ export function AnalyticsDashboard() {
               <Clock className="w-6 h-6 text-amber-600" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-slate-900">{mockAnalytics.averageResolutionTime}</p>
+          <p className="text-3xl font-bold text-slate-900">
+            {stats.loading ? <Loader2 className="w-7 h-7 animate-spin text-slate-400" /> : stats.avgDays}
+          </p>
           <p className="text-sm text-slate-600">Avg. Resolution (days)</p>
         </div>
       </div>
