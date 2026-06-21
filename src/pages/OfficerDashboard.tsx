@@ -18,12 +18,12 @@ import {
   FileText,
   CheckCircle,
   Clock,
-  Star,
-  TrendingUp,
   Shield,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { officerStats } from '@/data/mockData';
-import { OfficerResolutionPanel } from '@/components/OfficerResolutionPanel';
+import { OfficerResolutionPanel, type OfficerStats } from '@/components/OfficerResolutionPanel';
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -36,6 +36,7 @@ export function OfficerDashboard() {
   const [officerName, setOfficerName] = useState<string>(
     () => localStorage.getItem('janseva.officerName') ?? ''
   );
+  const [stats, setStats] = useState<OfficerStats | null>(null);
 
   useEffect(() => {
     const sync = () => setOfficerName(localStorage.getItem('janseva.officerName') ?? '');
@@ -43,8 +44,51 @@ export function OfficerDashboard() {
     return () => window.removeEventListener('storage', sync);
   }, []);
 
+  const handleStatsChange = (newStats: OfficerStats) => {
+    setStats(newStats);
+  };
+
   const displayName = officerName.trim() || 'Officer';
   const department = 'Field Operations';
+  const statsReady = stats !== null;
+
+  const statsCards = [
+    {
+      label: 'Total Complaints',
+      value: statsReady ? stats!.total : null,
+      icon: FileText,
+      iconBg: 'bg-blue-100',
+      iconColor: 'text-blue-600',
+    },
+    {
+      label: 'Assigned',
+      value: statsReady ? stats!.assigned : null,
+      icon: Shield,
+      iconBg: 'bg-amber-100',
+      iconColor: 'text-amber-600',
+    },
+    {
+      label: 'Pending',
+      value: statsReady ? stats!.pending : null,
+      icon: Clock,
+      iconBg: 'bg-slate-100',
+      iconColor: 'text-slate-600',
+    },
+    {
+      label: 'Emergency',
+      value: statsReady ? stats!.emergency : null,
+      icon: AlertTriangle,
+      iconBg: 'bg-red-100',
+      iconColor: 'text-red-600',
+    },
+    {
+      label: 'Resolved',
+      value: statsReady ? stats!.resolved : null,
+      icon: CheckCircle,
+      iconBg: 'bg-green-100',
+      iconColor: 'text-green-600',
+    },
+  ];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -68,60 +112,34 @@ export function OfficerDashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
-              <FileText className="w-6 h-6 text-blue-600" />
+        {statsCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <div
+              key={card.label}
+              className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm transition-all hover:shadow-md"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className={`w-12 h-12 rounded-xl ${card.iconBg} flex items-center justify-center`}>
+                  <Icon className={`w-6 h-6 ${card.iconColor}`} />
+                </div>
+              </div>
+              <p className="text-3xl font-bold text-slate-900">
+                {card.value === null ? (
+                  <Loader2 className="w-6 h-6 text-slate-300 animate-spin" />
+                ) : (
+                  card.value
+                )}
+              </p>
+              <p className="text-sm text-slate-600">{card.label}</p>
             </div>
-          </div>
-          <p className="text-3xl font-bold text-slate-900">{officerStats.complaintsAssigned}</p>
-          <p className="text-sm text-slate-600">Assigned</p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-slate-900">{officerStats.complaintsResolved}</p>
-          <p className="text-sm text-slate-600">Resolved</p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
-              <Clock className="w-6 h-6 text-amber-600" />
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-slate-900">{officerStats.pendingCases}</p>
-          <p className="text-sm text-slate-600">Pending</p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-emerald-600" />
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-slate-900">{officerStats.averageResolutionTime}</p>
-          <p className="text-sm text-slate-600">Avg. Days</p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-yellow-100 flex items-center justify-center">
-              <Star className="w-6 h-6 text-yellow-600" />
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-slate-900">{officerStats.citizenSatisfaction}%</p>
-          <p className="text-sm text-slate-600">Satisfaction</p>
-        </div>
+          );
+        })}
       </div>
 
       {/* Resolution Panel (live complaints) */}
       <div className="mb-6">
-        <OfficerResolutionPanel />
+        <OfficerResolutionPanel onStatsChange={handleStatsChange} />
       </div>
 
       {/* Charts */}

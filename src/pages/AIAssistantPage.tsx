@@ -8,6 +8,7 @@ import {
   HelpCircle,
   Loader2,
   User,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -73,13 +74,25 @@ export function AIAssistantPage() {
       body: JSON.stringify({ message: userMessage, history }),
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || 'Failed to get AI response');
+      let errorMsg = 'Failed to get AI response';
+      try {
+        const data = await response.json();
+        errorMsg = data.error || data.response || errorMsg;
+      } catch {
+        // Response wasn't JSON — use status text
+        errorMsg = `Server error (${response.status}). Please try again.`;
+      }
+      throw new Error(errorMsg);
     }
 
-    return data.response || 'I could not generate a response. Please try again.';
+    const data = await response.json();
+
+    if (!data.response) {
+      throw new Error('No response received from the assistant. Please try again.');
+    }
+
+    return data.response;
   };
 
   const sendMessage = async () => {
@@ -122,6 +135,41 @@ export function AIAssistantPage() {
     }
   };
 
+  const retryLastMessage = async () => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    if (!lastUserMsg || isLoading) return;
+    // Remove the last assistant message (likely an error message)
+    const lastMsg = messages[messages.length - 1];
+    setMessages((prev) =>
+      lastMsg && lastMsg.role === 'assistant'
+        ? prev.slice(0, -1)
+        : prev
+    );
+    setIsLoading(true);
+    try {
+      const response = await getAIResponse(lastUserMsg.content);
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: response,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (err) {
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: err instanceof Error
+          ? `I encountered an error: ${err.message}. Please try again.`
+          : 'I apologize, but I encountered an error. Please try again.',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -129,9 +177,41 @@ export function AIAssistantPage() {
     }
   };
 
-  const handleSuggestionClick = (text: string) => {
+  const handleSuggestionClick = async (text: string) => {
+    if (isLoading) return;
     setInput(text);
-    textareaRef.current?.focus();
+    // Auto-send the suggestion immediately
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: text,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+    try {
+      const response = await getAIResponse(text);
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: response,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (err) {
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: err instanceof Error
+          ? `I encountered an error: ${err.message}. Please try again.`
+          : 'I apologize, but I encountered an error. Please try again.',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -183,6 +263,15 @@ export function AIAssistantPage() {
                   )}
                 >
                   <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  {message.role === 'assistant' && message.content.includes('error') && message.id === messages[messages.length - 1]?.id && !isLoading && (
+                    <button
+                      onClick={retryLastMessage}
+                      className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Retry
+                    </button>
+                  )}
                 </div>
                 {message.role === 'user' && (
                   <div className="w-8 h-8 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
@@ -210,7 +299,7 @@ export function AIAssistantPage() {
           </div>
 
           {/* Suggested Questions */}
-          {messages.length === 1 && (
+          {messages.length === 1 && !isLoading && (
             <div className="px-6 pb-4">
               <p className="text-xs text-slate-500 mb-2">Quick suggestions:</p>
               <div className="flex flex-wrap gap-2">
@@ -220,7 +309,7 @@ export function AIAssistantPage() {
                     <button
                       key={index}
                       onClick={() => handleSuggestionClick(question.text)}
-                      className="flex items-center gap-2 px-3 py-2 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200 text-sm transition-colors"
+                      className="flex items-center gap-2 px-3 py-2 rounded-full bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 border border-transparent text-sm transition-all"
                     >
                       <Icon className="w-4 h-4" />
                       {question.text}

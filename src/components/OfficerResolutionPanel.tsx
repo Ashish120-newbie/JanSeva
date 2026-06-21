@@ -3,6 +3,7 @@ import {
   Loader2,
   AlertCircle,
   Filter,
+  Search,
   X,
   User,
   Mail,
@@ -15,6 +16,9 @@ import {
   RefreshCw,
   Save,
   Shield,
+  UserCheck,
+  PlayCircle,
+  XCircle,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -31,6 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
   in_progress: 'In Progress',
   resolved: 'Resolved',
   pending: 'Submitted',
+  rejected: 'Rejected',
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -49,13 +54,35 @@ const PRIORITY_STYLES: Record<string, string> = {
   urgent: 'bg-red-100 text-red-700',
 };
 
-type FilterStatus = ComplaintStatus | 'all';
+type FilterType = 'all' | 'pending' | 'in_progress' | 'resolved' | 'high_priority' | 'emergency';
 
-export function OfficerResolutionPanel() {
+const FILTERS: { id: FilterType; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'resolved', label: 'Resolved' },
+  { id: 'high_priority', label: 'High Priority' },
+  { id: 'emergency', label: 'Emergency' },
+];
+
+export type OfficerStats = {
+  total: number;
+  assigned: number;
+  resolved: number;
+  pending: number;
+  emergency: number;
+};
+
+export function OfficerResolutionPanel({
+  onStatsChange,
+}: {
+  onStatsChange?: (stats: OfficerStats) => void;
+}) {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterStatus>('all');
+  const [filter, setFilter] = useState<FilterType>('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [selected, setSelected] = useState<Complaint | null>(null);
   const [newStatus, setNewStatus] = useState<ComplaintStatus>('submitted');
   const [notes, setNotes] = useState('');
@@ -64,6 +91,7 @@ export function OfficerResolutionPanel() {
   const [officerName, setOfficerName] = useState<string>(() => {
     return localStorage.getItem('janseva.officerName') ?? '';
   });
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const handleOfficerNameChange = (name: string) => {
     setOfficerName(name);
@@ -91,6 +119,22 @@ export function OfficerResolutionPanel() {
     loadComplaints();
   }, [loadComplaints]);
 
+  // Compute and emit stats whenever complaints change.
+  useEffect(() => {
+    if (onStatsChange) {
+      const stats: OfficerStats = {
+        total: complaints.length,
+        assigned: complaints.filter((c) => c.status === 'assigned').length,
+        resolved: complaints.filter((c) => c.status === 'resolved').length,
+        pending: complaints.filter((c) =>
+          c.status === 'submitted' || c.status === 'pending'
+        ).length,
+        emergency: complaints.filter((c) => c.priority === 'urgent').length,
+      };
+      onStatsChange(stats);
+    }
+  }, [complaints, onStatsChange]);
+
   // When a complaint is opened, sync the drawer form to its current state.
   useEffect(() => {
     if (selected) {
@@ -102,20 +146,136 @@ export function OfficerResolutionPanel() {
   }, [selected]);
 
   const visible = complaints.filter((c) => {
-    if (filter === 'all') return true;
-    if (filter === 'submitted' && c.status === 'pending') return true;
-    return c.status === filter;
+    // Filter
+    const status = c.status === 'pending' ? 'submitted' : c.status;
+    let matchesFilter = false;
+    switch (filter) {
+      case 'all':
+        matchesFilter = true;
+        break;
+      case 'pending':
+        matchesFilter = status === 'submitted' || status === 'assigned';
+        break;
+      case 'in_progress':
+        matchesFilter = status === 'in_progress';
+        break;
+      case 'resolved':
+        matchesFilter = status === 'resolved' || c.status === 'rejected';
+        break;
+      case 'high_priority':
+        matchesFilter = c.priority === 'high';
+        break;
+      case 'emergency':
+        matchesFilter = c.priority === 'urgent';
+        break;
+      default:
+        matchesFilter = true;
+    }
+
+    // Search
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return matchesFilter;
+    const matchesSearch =
+      c.complaint_id.toLowerCase().includes(term) ||
+      c.citizen_name.toLowerCase().includes(term);
+    return matchesFilter && matchesSearch;
   });
 
-  const summary = STATUS_FLOW.reduce(
-    (acc, s) => {
-      acc[s] = complaints.filter((c) =>
-        s === 'submitted' ? c.status === 'submitted' || c.status === 'pending' : c.status === s
-      ).length;
-      return acc;
-    },
-    {} as Record<ComplaintStatus, number>
-  );
+  const filterCounts = {
+    all: complaints.length,
+    pending: complaints.filter((c) => {
+      const s = c.status === 'pending' ? 'submitted' : c.status;
+      return s === 'submitted' || s === 'assigned';
+    }).length,
+    in_progress: complaints.filter((c) => c.status === 'in_progress').length,
+    resolved: complaints.filter((c) => c.status === 'resolved' || c.status === 'rejected').length,
+    high_priority: complaints.filter((c) => c.priority === 'high').length,
+    emergency: complaints.filter((c) => c.priority === 'urgent').length,
+  };
+
+  const updateStatusDirect = async (
+    complaint: Complaint,
+    status: ComplaintStatus | 'rejected'
+  ) => {
+    if (!officerName.trim()) {
+      // If no officer name, open the drawer so they can enter it.
+      setSelected(complaint);
+      setSaveMessage({ type: 'error', text: 'Please enter your name before updating a complaint.' });
+      return;
+    }
+    setUpdatingId(complaint.id);
+    const payload: Record<string, unknown> = {
+      status,
+      officer_name: officerName.trim(),
+      officer_notes: complaint.officer_notes ?? null,
+    };
+
+    const { data, error: updateError } = await supabase
+      .from('complaints')
+      .update(payload)
+      .eq('id', complaint.id)
+      .select('*')
+      .single();
+
+    setUpdatingId(null);
+
+    if (updateError || !data) {
+      setSelected(complaint);
+      setSaveMessage({ type: 'error', text: updateError?.message ?? 'Failed to update complaint.' });
+      return;
+    }
+
+    const updated = data as Complaint;
+    setComplaints((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    setSaveMessage({ type: 'success', text: `"${complaint.complaint_id}" marked as ${STATUS_LABELS[status]}.` });
+    notifyComplaintChanged();
+  };
+
+  const getAvailableActions = (complaint: Complaint) => {
+    const status = complaint.status === 'pending' ? 'submitted' : complaint.status;
+    const actions: {
+      label: string;
+      icon: React.ComponentType<{ className?: string }>;
+      action: ComplaintStatus | 'rejected';
+      variant: 'outline' | 'default';
+      className: string;
+    }[] = [];
+    if (status === 'submitted' || status === 'pending') {
+      actions.push({
+        label: 'Assign',
+        icon: UserCheck,
+        action: 'assigned',
+        variant: 'outline',
+        className: 'text-amber-700 border-amber-200 hover:bg-amber-50',
+      });
+    }
+    if (status === 'assigned' || status === 'submitted') {
+      actions.push({
+        label: 'In Progress',
+        icon: PlayCircle,
+        action: 'in_progress',
+        variant: 'outline',
+        className: 'text-blue-700 border-blue-200 hover:bg-blue-50',
+      });
+    }
+    if (status !== 'resolved' && status !== 'rejected') {
+      actions.push({
+        label: 'Resolve',
+        icon: CheckCircle,
+        action: 'resolved',
+        variant: 'outline',
+        className: 'text-green-700 border-green-200 hover:bg-green-50',
+      });
+      actions.push({
+        label: 'Reject',
+        icon: XCircle,
+        action: 'rejected',
+        variant: 'outline',
+        className: 'text-red-700 border-red-200 hover:bg-red-50',
+      });
+    }
+    return actions;
+  };
 
   const handleSave = async () => {
     if (!selected) return;
@@ -169,17 +329,38 @@ export function OfficerResolutionPanel() {
         </div>
       </header>
 
-      {/* Status filter chips */}
+      {/* Search bar */}
+      <div className="px-6 py-3 border-b border-slate-100">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by Complaint ID or Citizen Name..."
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter chips */}
       <div className="px-6 py-3 border-b border-slate-100 flex items-center gap-2 flex-wrap">
-        <Filter className="w-4 h-4 text-slate-400" />
-        <FilterChip label="All" count={complaints.length} active={filter === 'all'} onClick={() => setFilter('all')} />
-        {STATUS_FLOW.map((s) => (
+        <Filter className="w-4 h-4 text-slate-400 flex-shrink-0" />
+        {FILTERS.map((f) => (
           <FilterChip
-            key={s}
-            label={STATUS_LABELS[s]}
-            count={summary[s]}
-            active={filter === s}
-            onClick={() => setFilter(s)}
+            key={f.id}
+            label={f.label}
+            count={filterCounts[f.id]}
+            active={filter === f.id}
+            onClick={() => setFilter(f.id)}
           />
         ))}
       </div>
@@ -202,61 +383,128 @@ export function OfficerResolutionPanel() {
       ) : visible.length === 0 ? (
         <div className="p-12 text-center text-slate-400">
           <CheckCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-          No complaints match this filter.
+          {searchTerm ? 'No complaints match your search.' : 'No complaints match this filter.'}
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Complaint</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Department</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Priority</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Filed</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Action</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Complaint ID</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Citizen Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Description</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Category</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Department</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Priority</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Created</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {visible.map((complaint) => (
-                <tr key={complaint.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-mono font-medium text-blue-600">{complaint.complaint_id}</td>
-                  <td className="px-6 py-4 max-w-md">
-                    <p className="text-sm font-medium text-slate-900 line-clamp-1">
-                      {complaint.description.slice(0, 80) || '(no description)'}
-                    </p>
-                    <p className="text-xs text-slate-500">{complaint.category}</p>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{complaint.department}</td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      'px-2 py-1 rounded-full text-xs font-medium capitalize',
-                      PRIORITY_STYLES[complaint.priority]
-                    )}>
-                      {complaint.priority}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      'px-2.5 py-1 rounded-full text-xs font-medium border',
-                      STATUS_STYLES[complaint.status] ?? STATUS_STYLES.submitted
-                    )}>
-                      {STATUS_LABELS[complaint.status] ?? STATUS_LABELS.submitted}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">
-                    {format(new Date(complaint.created_at), 'MMM d, yyyy')}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Button variant="outline" size="sm" onClick={() => setSelected(complaint)}>
-                      Resolve
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {visible.map((complaint) => {
+                const actions = getAvailableActions(complaint);
+                return (
+                  <tr key={complaint.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-4">
+                      <button
+                        onClick={() => setSelected(complaint)}
+                        className="text-sm font-mono font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                      >
+                        {complaint.complaint_id}
+                      </button>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="text-sm font-medium text-slate-900">{complaint.citizen_name}</p>
+                    </td>
+                    <td className="px-4 py-4 max-w-xs">
+                      <p className="text-sm text-slate-600 line-clamp-2">
+                        {complaint.description}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                        {complaint.category}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-slate-600">{complaint.department}</td>
+                    <td className="px-4 py-4">
+                      <span className={cn(
+                        'px-2 py-1 rounded-full text-xs font-medium capitalize',
+                        PRIORITY_STYLES[complaint.priority]
+                      )}>
+                        {complaint.priority}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={cn(
+                        'px-2.5 py-1 rounded-full text-xs font-medium border',
+                        STATUS_STYLES[complaint.status] ?? STATUS_STYLES.submitted
+                      )}>
+                        {STATUS_LABELS[complaint.status] ?? STATUS_LABELS.submitted}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
+                      {format(new Date(complaint.created_at), 'MMM d, yyyy')}
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {actions.length === 0 ? (
+                          <span className="text-xs text-slate-400">Closed</span>
+                        ) : (
+                          actions.map((action) => {
+                            const Icon = action.icon;
+                            return (
+                              <button
+                                key={action.action}
+                                onClick={() => updateStatusDirect(complaint, action.action)}
+                                disabled={updatingId === complaint.id}
+                                title={action.label}
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+                                  action.className
+                                )}
+                              >
+                                {updatingId === complaint.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Icon className="w-3 h-3" />
+                                )}
+                                {action.label}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Inline save message for direct button actions */}
+      {saveMessage && !selected && (
+        <div className="px-6 py-3 border-t border-slate-100">
+          <div className={cn(
+            'rounded-xl p-3 flex items-start gap-2 text-sm',
+            saveMessage.type === 'success'
+              ? 'bg-green-50 border border-green-200 text-green-800'
+              : 'bg-red-50 border border-red-200 text-red-800'
+          )}>
+            {saveMessage.type === 'success'
+              ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              : <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+            <span>{saveMessage.text}</span>
+            <button
+              onClick={() => setSaveMessage(null)}
+              className="ml-auto text-current opacity-60 hover:opacity-100"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase, type Complaint } from '@/lib/supabase';
+import { subscribeToComplaintChanges } from '@/lib/complaintEvents';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -93,6 +94,14 @@ export function TrackComplaintPage() {
     if (initialId) {
       searchComplaint(initialId);
     }
+    // Re-fetch when an officer updates a complaint, so the citizen sees
+    // the new status without manually re-searching.
+    const unsubscribe = subscribeToComplaintChanges(() => {
+      if (complaint) {
+        searchComplaint(complaint.complaint_id);
+      }
+    });
+    return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialId]);
 
